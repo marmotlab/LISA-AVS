@@ -3,6 +3,11 @@
 
 # LISA: Reasoning Segmentation via Large Language Model
 
+Note: This is fork from the [original LISA webpage](https://github.com/dvlab-research/LISA), finetuned on visual search ([AVS-Bench](https://huggingface.co/datasets/derektan95/avs-bench)) remote sensing dataset as a baseline to [Search-TTA](https://search-tta.github.io/). To run the finetuned LISA model on the AVS-Bench dataset, please run the following: 
+```
+CUDA_VISIBLE_DEVICES=0 python chat.py --version='derektan95/LISA-RS' --precision='bf16'
+```
+
 <font size=7><div align='center'><b>LISA</b>: Large <b>L</b>anguage <b>I</b>nstructed <b>S</b>egmentation <b>A</b>ssistant</div></font>
 
 <font size=7><div align='center'>

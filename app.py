@@ -6,6 +6,7 @@ import sys
 import bleach
 import cv2
 import gradio as gr
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -292,16 +293,43 @@ def inference(input_str, input_image):
         if pred_mask.shape[0] == 0:
             continue
 
-        pred_mask = pred_mask.detach().cpu().numpy()[0]
-        pred_mask = pred_mask > 0
+        pred_mask_np = pred_mask.detach().cpu().numpy()[0]
+        
+        # Normalize the continuous score mask to 0-255 range for visualization
+        min_val = float(pred_mask_np.min())
+        max_val = float(pred_mask_np.max())
+        # Avoid division by zero if min_val == max_val
+        denom = (max_val - min_val) if (max_val - min_val) != 0 else 1e-8
+        
+        # Normalize to [0, 255] for image display
+        normalized_mask = ((pred_mask_np - min_val) / denom * 255).astype(np.uint8)
+        
+        # Apply colormap (jet) to create a colored visualization
+        save_img = cv2.applyColorMap(normalized_mask, cv2.COLORMAP_VIRIDIS)
+        save_img = cv2.cvtColor(save_img, cv2.COLOR_BGR2RGB)
 
-        save_img = image_np.copy()
-        save_img[pred_mask] = (
-            image_np * 0.5
-            + pred_mask[:, :, None].astype(np.uint8) * np.array([255, 0, 0]) * 0.5
-        )[pred_mask]
+        # -------------------------------------------------------------
+        # Add a vertical legend (color bar) to the right of save_img
+        # -------------------------------------------------------------
+        legend_width = 30
+        legend_height = save_img.shape[0]
+        # Create vertical gradient from 255 (top) to 0 (bottom)
+        gradient = np.linspace(255, 0, legend_height, dtype=np.uint8).reshape(-1, 1)
+        gradient = np.repeat(gradient, legend_width, axis=1)
+        legend_color = cv2.applyColorMap(gradient, cv2.COLORMAP_VIRIDIS)
+        legend_color = cv2.cvtColor(legend_color, cv2.COLOR_BGR2RGB)
 
-    output_str = "ASSITANT: " + text_output  # input_str
+        # Put min / max text on legend
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.4
+        thickness = 1
+        cv2.putText(legend_color, f"{max_val:.2f}", (2, 12), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        cv2.putText(legend_color, f"{min_val:.2f}", (2, legend_height - 4), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+        # Concatenate original visualization with legend
+        save_img = np.concatenate([save_img, legend_color], axis=1)
+
+    output_str = "ASSISTANT: " + text_output  # input_str
     if save_img is not None:
         output_image = save_img  # input_image
     else:
@@ -323,7 +351,7 @@ demo = gr.Interface(
     title=title,
     description=description,
     article=article,
-    examples=examples,
+    examples=None,
     allow_flagging="auto",
 )
 

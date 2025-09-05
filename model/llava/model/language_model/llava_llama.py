@@ -129,7 +129,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         return CausalLMOutputWithPast(
             loss=loss,
             logits=logits,
-            past_key_values=outputs.past_key_values,
+            past_key_values=None, # outputs.past_key_values, https://github.com/dvlab-research/LISA/issues/117
             hidden_states=output_hidden_states,  # outputs.hidden_states,
             attentions=outputs.attentions,
         )

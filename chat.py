@@ -1,8 +1,14 @@
+###############################
+# chat.py
+# Inference for LISA (terminal-based)
+###############################
+
 import argparse
 import os
 import sys
 
 import cv2
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -67,17 +73,29 @@ def main(args):
     args = parse_args(args)
     os.makedirs(args.vis_save_path, exist_ok=True)
 
+    # NOTE: NO NEED?
+    # if args.version == "BigData-KSU/RS-llava-v1.5-7b-LoRA":
+    #    tokenizer_base = 'Intel/neural-chat-7b-v3-3'
+    # else:
+    #    tokenizer_base = args.version
+
     # Create model
     tokenizer = AutoTokenizer.from_pretrained(
-        args.version,
+        args.version,   # tokenizer_base?
         cache_dir=None,
         model_max_length=args.model_max_length,
         padding_side="right",
         use_fast=False,
     )
     tokenizer.pad_token = tokenizer.unk_token
+    # num_added_tokens = tokenizer.add_tokens("[SEG]")  # NOTE: NO NEED?
     args.seg_token_idx = tokenizer("[SEG]", add_special_tokens=False).input_ids[0]
 
+    # NOTE: NO NEED?
+    # if args.use_mm_start_end:
+    #     tokenizer.add_tokens(
+    #         [DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN], special_tokens=True
+    #     )
 
     torch_dtype = torch.float32
     if args.precision == "bf16":
@@ -155,8 +173,8 @@ def main(args):
         conv = conversation_lib.conv_templates[args.conv_type].copy()
         conv.messages = []
 
-        prompt = input("Please input your prompt: ")
-        prompt = DEFAULT_IMAGE_TOKEN + "\n" + prompt
+        question = input("Please input your prompt: ")
+        prompt = DEFAULT_IMAGE_TOKEN + "\n" + question
         if args.use_mm_start_end:
             replace_token = (
                 DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
@@ -223,30 +241,118 @@ def main(args):
         text_output = text_output.replace("\n", "").replace("  ", " ")
         print("text_output: ", text_output)
 
+        # for i, pred_mask in enumerate(pred_masks):
+        #     if pred_mask.shape[0] == 0:
+        #         continue
+
+        #     print("min pre_mask: ", pred_mask.min())
+        #     print("max pre_mask: ", pred_mask.max())
+
+        #     pred_mask = pred_mask.detach().cpu().numpy()[0]
+        #     pred_mask = pred_mask > 0
+
+        #     save_path = "{}/{}_mask_{}.jpg".format(
+        #         args.vis_save_path, image_path.split("/")[-1].split(".")[0], i
+        #     )
+        #     cv2.imwrite(save_path, pred_mask * 100)
+        #     print("{} has been saved.".format(save_path))
+
+        #     save_path = "{}/{}_masked_img_{}.jpg".format(
+        #         args.vis_save_path, image_path.split("/")[-1].split(".")[0], i
+        #     )
+        #     save_img = image_np.copy()
+        #     save_img[pred_mask] = (
+        #         image_np * 0.5
+        #         + pred_mask[:, :, None].astype(np.uint8) * np.array([255, 0, 0]) * 0.5
+        #     )[pred_mask]
+        #     save_img = cv2.cvtColor(save_img, cv2.COLOR_RGB2BGR)
+        #     cv2.imwrite(save_path, save_img)
+        #     print("{} has been saved.".format(save_path))
+
         for i, pred_mask in enumerate(pred_masks):
             if pred_mask.shape[0] == 0:
                 continue
 
-            pred_mask = pred_mask.detach().cpu().numpy()[0]
-            pred_mask = pred_mask > 0
+            # ------------------------------------------------------------------
+            # 1) Prepare / detach / copy stuff
+            # ------------------------------------------------------------------
+            # Convert torch tensor -> NumPy
+            pred_mask_np = pred_mask.detach().cpu().numpy()[0]
+            # Convert your image from RGB to a float NumPy array if needed
+            # (Adjust as necessary depending on your original image data type)
+            image_rgb = image_np.astype(np.float32)  # shape (H, W, 3)
 
-            save_path = "{}/{}_mask_{}.jpg".format(
+            # ------------------------------------------------------------------
+            # 2) Create the Binary Mask & Overlaid Image (subplot #2)
+            # ------------------------------------------------------------------
+            # Binary threshold (> 0)
+            binary_mask = pred_mask_np > 0
+
+            # Make a copy of the original image for overlaying
+            masked_image = image_rgb.copy()
+            
+            # Option A: Simple half-blend with red for the masked area
+            # We only modify pixels where binary_mask is True
+            red_color = np.array([255, 0, 0], dtype=np.float32)
+            blended_red = image_rgb[binary_mask] * 0.5 + red_color * 0.5
+            masked_image[binary_mask] = blended_red
+
+            # ------------------------------------------------------------------
+            # 3) Create the Raw Mask (subplot #3) + Colorbar
+            # ------------------------------------------------------------------
+            min_val = float(pred_mask_np.min())
+            max_val = float(pred_mask_np.max())
+            # Avoid division by zero if min_val == max_val
+            denom = (max_val - min_val) if (max_val - min_val) != 0 else 1e-8
+
+            # Normalize to [0, 1]
+            normalized_mask = (pred_mask_np - min_val) / denom
+
+            # ------------------------------------------------------------------
+            # 4) Plot everything with Matplotlib
+            # ------------------------------------------------------------------
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+
+            # (Left) Original Image
+            ax1.imshow(image_rgb.astype(np.uint8))
+            ax1.set_title("Original Image")
+            ax1.axis("off")
+
+            # (Middle) Binary Mask Overlaid
+            ax2.imshow(masked_image.astype(np.uint8))
+            ax2.set_title("Binary Mask (>0) in Red")
+            ax2.axis("off")
+
+            # (Right) Raw Mask with Colorbar
+            # Show the normalized mask in [0..1] range, but apply a color map
+            im3 = ax3.imshow(normalized_mask, cmap='jet', vmin=0, vmax=1)
+            ax3.set_title("Raw Mask (Continuous)")
+            ax3.axis("off")
+
+            # Add a colorbar to the third subplot
+            cbar = fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+            cbar.set_label("Normalized Mask Value")
+
+            # Add a main title (optional)
+            fig.suptitle(f"Question: {question}")
+            answer = text_output[text_output.find("ASSISTANT"):]
+            fig.text(0.5, 0.05, f"{answer}", ha='center', va='center')
+
+            # ------------------------------------------------------------------
+            # 5) Show the figure, then save after it’s closed
+            # ------------------------------------------------------------------
+            # When plt.show() returns, the figure is closed if interactive mode is off.
+            plt.show(block=True)   # This pauses execution until the window is closed.
+
+            # Now save the figure
+            save_path = "{}/{}_matplotlib_{}.png".format(
                 args.vis_save_path, image_path.split("/")[-1].split(".")[0], i
             )
-            cv2.imwrite(save_path, pred_mask * 100)
-            print("{} has been saved.".format(save_path))
+            fig.savefig(save_path)
+            print(f"Figure saved to: {save_path}")
 
-            save_path = "{}/{}_masked_img_{}.jpg".format(
-                args.vis_save_path, image_path.split("/")[-1].split(".")[0], i
-            )
-            save_img = image_np.copy()
-            save_img[pred_mask] = (
-                image_np * 0.5
-                + pred_mask[:, :, None].astype(np.uint8) * np.array([255, 0, 0]) * 0.5
-            )[pred_mask]
-            save_img = cv2.cvtColor(save_img, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(save_path, save_img)
-            print("{} has been saved.".format(save_path))
+            # Finally close the figure to free memory
+            plt.close(fig)
 
 
 if __name__ == "__main__":

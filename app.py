@@ -19,7 +19,7 @@ from model.llava.mm_utils import tokenizer_image_token
 from model.segment_anything.utils.transforms import ResizeLongestSide
 from utils.utils import (DEFAULT_IM_END_TOKEN, DEFAULT_IM_START_TOKEN,
                          DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX)
-from huggingface_hub import spaces
+import spaces
 
 def parse_args(args):
     parser = argparse.ArgumentParser(description="LISA chat")
@@ -203,7 +203,7 @@ Preprint Paper
 <a href='https://github.com/dvlab-research/LISA' target='_blank'>   Github Repo </a></p>
 """
 
-@spaces.ZeroGPU
+@spaces.GPU
 def inference(input_str, input_image):
     ## filter out special chars
     input_str = bleach.clean(input_str)
